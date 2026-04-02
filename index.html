@@ -28,9 +28,9 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .field label{display:block;font-size:12px;font-weight:600;color:var(--gray-500);margin-bottom:6px;letter-spacing:.04em}
 .field input,.field select{width:100%;padding:11px 13px;border:1px solid var(--gray-300);border-radius:var(--radius-sm);font-size:15px;color:var(--gray-900);background:white;-webkit-appearance:none;appearance:none;transition:border-color .15s}
 .field input:focus,.field select:focus{outline:none;border-color:var(--blue);box-shadow:0 0 0 3px rgba(26,111,196,.12)}
-.meter-input{font-size:20px;font-weight:600;letter-spacing:.02em}
+.meter-input{font-size:20px;font-weight:600}
 .meter-suffix{font-size:13px;color:var(--gray-500);margin-top:4px}
-.btn{width:100%;padding:14px;border:none;border-radius:var(--radius);font-size:16px;font-weight:600;cursor:pointer;transition:all .15s;letter-spacing:.01em}
+.btn{width:100%;padding:14px;border:none;border-radius:var(--radius);font-size:16px;font-weight:600;cursor:pointer;transition:all .15s}
 .btn-depart{background:var(--blue);color:white}
 .btn-arrive{background:var(--green);color:white}
 .btn-depart:active,.btn-arrive:active{transform:scale(.98);opacity:.92}
@@ -53,10 +53,9 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .qr-card.depart h4{color:var(--blue)}
 .qr-card.arrive h4{color:var(--green)}
 #qr-depart,#qr-arrive{display:flex;justify-content:center;margin-bottom:10px}
-.qr-url{font-size:10px;color:var(--gray-500);word-break:break-all}
 .member-list{display:flex;flex-wrap:wrap;gap:8px;margin-bottom:10px}
-.member-chip{background:var(--gray-100);border-radius:99px;padding:6px 12px;font-size:13px;display:flex;align-items:center;gap:6px;cursor:pointer}
-.member-chip .del{color:var(--gray-500);font-size:16px;line-height:1}
+.member-chip{background:var(--gray-100);border-radius:99px;padding:6px 12px;font-size:13px;display:flex;align-items:center;gap:6px}
+.member-chip .del{color:var(--gray-500);font-size:16px;line-height:1;cursor:pointer}
 .add-row{display:flex;gap:8px}
 .add-row .field{flex:1;margin:0}
 .btn-add{padding:10px 16px;background:var(--gray-900);color:white;border:none;border-radius:var(--radius-sm);font-size:14px;font-weight:600;cursor:pointer;white-space:nowrap}
@@ -73,12 +72,13 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .page-pad{padding-bottom:80px}
 .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.url-note{font-size:10px;color:var(--gray-500);word-break:break-all;margin-top:6px}
 </style>
 </head>
 <body>
 
 <div class="top-bar" id="top-bar">
-  <h1 id="top-title">車両運行記録</h1>
+  <h1>車両運行記録</h1>
   <p id="top-sub"></p>
   <div class="mode-badge" id="mode-badge"></div>
 </div>
@@ -92,32 +92,26 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 </nav>
 
 <script>
-// ── URLパラメータ（最初に読む）──────────────────────────────
+// ── URLパラメータ ────────────────────────────────────────────
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') || 'admin';
 
-// ── 設定の読み書き ──────────────────────────────────────────
+// ── ローカルストレージ（管理画面の設定保存用）──────────────
 const CFG_KEY = 'vlog_config';
 const STATE_KEY = 'vlog_pending';
-
 function loadConfig() { try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; } }
 function saveConfig(c) { localStorage.setItem(CFG_KEY, JSON.stringify(c)); }
 function loadPending() { try { return JSON.parse(localStorage.getItem(STATE_KEY)); } catch { return null; } }
 function savePending(p) { localStorage.setItem(STATE_KEY, JSON.stringify(p)); }
 function clearPending() { localStorage.removeItem(STATE_KEY); }
 
+// cfg は管理画面専用。出庫・入庫画面はGASから設定を取得する
 let cfg = loadConfig();
 if (!cfg.members) cfg.members = ['田中 太郎','鈴木 花子','山田 一郎','佐藤 次郎'];
 if (!cfg.purposes) cfg.purposes = ['営業訪問','荷物配送','資材調達','社内移動','その他'];
 
-// URLパラメータからメンバー・用途・GAS URLを上書き（QRコード経由アクセス時）
-if (params.get('members')) cfg.members = decodeURIComponent(params.get('members')).split(',').filter(Boolean);
-if (params.get('purposes')) cfg.purposes = decodeURIComponent(params.get('purposes')).split(',').filter(Boolean);
-if (params.get('gas')) { const g = decodeURIComponent(params.get('gas')); if (g) cfg.gasUrl = g; }
-
-// ── トップバー設定 ───────────────────────────────────────────
-const topBar = document.getElementById('top-bar');
-topBar.classList.add('mode-' + (MODE === 'admin' ? 'admin' : MODE));
+// ── トップバー ───────────────────────────────────────────────
+document.getElementById('top-bar').classList.add('mode-' + (MODE === 'admin' ? 'admin' : MODE));
 const modeBadge = document.getElementById('mode-badge');
 if (MODE === 'depart') {
   modeBadge.textContent = '出庫モード';
@@ -130,34 +124,59 @@ if (MODE === 'depart') {
   document.getElementById('top-sub').textContent = 'QR生成・メンバー設定';
 }
 
-// ── ユーティリティ ───────────────────────────────────────────
 function now() {
   return new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
 
-// ── GAS送信 ─────────────────────────────────────────────────
-async function submitToGAS(payload) {
-  if (!cfg.gasUrl) return { ok: false, msg: 'GAS URLが未設定です' };
+// ── GAS通信（設定取得 & データ送信）────────────────────────
+// GASのURLはQRに含めず、このファイルに直接書く
+// 管理画面で設定したURLをここに自動反映する仕組み
+function getGasUrl() {
+  // 管理画面で保存したURLを使う
+  return loadConfig().gasUrl || '';
+}
+
+async function fetchConfig() {
+  const url = getGasUrl();
+  if (!url) return null;
   try {
-    await fetch(cfg.gasUrl, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), mode:'no-cors' });
+    const res = await fetch(url + '?action=getConfig');
+    const data = await res.json();
+    return data;
+  } catch { return null; }
+}
+
+async function submitToGAS(payload) {
+  const url = getGasUrl();
+  if (!url) return { ok: false };
+  try {
+    await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), mode:'no-cors' });
     return { ok: true };
   } catch(e) { return { ok: false, msg: e.message }; }
 }
 
 // ── ページ切り替え ───────────────────────────────────────────
 const content = document.getElementById('main-content');
-
 function showPage(page) {
-  document.getElementById('nav-d').className = 'nav-item';
-  document.getElementById('nav-a').className = 'nav-item';
-  document.getElementById('nav-s').className = 'nav-item';
+  ['nav-d','nav-a','nav-s'].forEach(id => document.getElementById(id).className = 'nav-item');
   if (page === 'depart') { document.getElementById('nav-d').className = 'nav-item active-d'; renderDepart(); }
   if (page === 'arrive') { document.getElementById('nav-a').className = 'nav-item active-a'; renderArrive(); }
   if (page === 'settings') { document.getElementById('nav-s').className = 'nav-item active-s'; renderSettings(); }
 }
 
+// ── 出庫・入庫共通：メンバー/用途を取得（GAS→ローカル→デフォルト）
+async function getMembers() {
+  const remote = await fetchConfig();
+  if (remote && remote.members) return { members: remote.members, purposes: remote.purposes };
+  // GAS未設定 or 失敗時はローカル設定を使う
+  const c = loadConfig();
+  return { members: c.members, purposes: c.purposes };
+}
+
 // ── 出庫画面 ─────────────────────────────────────────────────
-function renderDepart() {
+async function renderDepart() {
+  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-500);font-size:14px;">読み込み中...</div>';
+  const { members, purposes } = await getMembers();
   const pending = loadPending();
   let html = '';
   if (pending) {
@@ -173,13 +192,13 @@ function renderDepart() {
     <div class="field"><label>使用者</label>
       <select id="d-user">
         <option value="">選択してください</option>
-        ${cfg.members.map(m => `<option>${m}</option>`).join('')}
+        ${members.map(m => `<option>${m}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>使用用途</label>
       <select id="d-purpose">
         <option value="">選択してください</option>
-        ${cfg.purposes.map(p => `<option>${p}</option>`).join('')}
+        ${purposes.map(p => `<option>${p}</option>`).join('')}
       </select>
     </div>
     <div class="field">
@@ -205,7 +224,8 @@ async function doDepart() {
   btn.disabled = true;
   const record = { user, purpose, departMeter: meter, departTime: now() };
   savePending(record);
-  const res = await submitToGAS({ ...record, sheetRow: 'depart' });
+  const gasUrl = getGasUrl();
+  await submitToGAS({ ...record, sheetRow: 'depart' });
   content.innerHTML = `<div class="result-box">
     <div class="result-icon">🚗</div>
     <h2 style="color:var(--blue)">出庫を記録しました</h2>
@@ -214,8 +234,8 @@ async function doDepart() {
       <div>出庫メーター: <b>${meter.toLocaleString()} km</b></div>
       <div style="color:var(--gray-500);margin-top:4px;font-size:13px;">${record.departTime}</div>
     </div>
-    <div class="alert ${cfg.gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
-      ${cfg.gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
+    <div class="alert ${gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
+      ${gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
     </div>
     <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderDepart()">戻る</button>
   </div>`;
@@ -228,7 +248,7 @@ function renderArrive() {
     content.innerHTML = `<div class="form-card" style="text-align:center;padding:40px 20px;">
       <div style="font-size:40px;margin-bottom:12px;">🔍</div>
       <div style="font-size:16px;font-weight:600;margin-bottom:8px;">出庫記録がありません</div>
-      <div style="font-size:13px;color:var(--gray-500);">先に出庫を記録してください</div>
+      <div style="font-size:13px;color:var(--gray-500);">先に出庫QRを読んで記録してください</div>
     </div>`;
     return;
   }
@@ -263,7 +283,8 @@ async function doArrive() {
   btn.disabled = true;
   const distance = meter - pending.departMeter;
   const record = { ...pending, arriveMeter: meter, arriveTime: now(), distance };
-  const res = await submitToGAS({ ...record, sheetRow: 'arrive' });
+  const gasUrl = getGasUrl();
+  await submitToGAS({ ...record, sheetRow: 'arrive' });
   clearPending();
   content.innerHTML = `<div class="result-box">
     <div class="result-icon">🏁</div>
@@ -272,8 +293,8 @@ async function doArrive() {
     <div style="font-size:13px;color:var(--gray-500);">走行距離</div>
     <div style="margin-top:12px;font-size:13px;color:var(--gray-500);">${pending.departMeter.toLocaleString()} km → ${meter.toLocaleString()} km</div>
     <div style="margin-top:6px;font-size:13px;color:var(--gray-700);">${pending.user} ／ ${pending.purpose}</div>
-    <div class="alert ${cfg.gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
-      ${cfg.gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
+    <div class="alert ${gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
+      ${gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
     </div>
     <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderArrive()">戻る</button>
   </div>`;
@@ -281,6 +302,9 @@ async function doArrive() {
 
 // ── 設定画面 ─────────────────────────────────────────────────
 function renderSettings() {
+  const base = location.href.split('?')[0];
+  const dUrl = base + '?mode=depart';
+  const aUrl = base + '?mode=arrive';
   content.innerHTML = `
   <div class="settings-section">
     <h3>GOOGLE APPS SCRIPT 連携</h3>
@@ -307,17 +331,24 @@ function renderSettings() {
     </div>
   </div>
   <div class="settings-section">
-    <h3>QRコード生成</h3>
+    <h3>QRコード</h3>
+    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">QRはシンプルなURLのみ。メンバー情報はGASから自動取得します。</div>
     <div class="qr-grid">
-      <div class="qr-card depart"><h4>🚗 出庫QR</h4><div id="qr-depart"></div><div class="qr-url" id="qr-depart-url"></div></div>
-      <div class="qr-card arrive"><h4>🏁 入庫QR</h4><div id="qr-arrive"></div><div class="qr-url" id="qr-arrive-url"></div></div>
-    </div>
-    <div style="margin-top:12px;font-size:12px;color:var(--gray-500);">
-      ※ メンバーを変更した場合はQRを再生成して貼り替えてください。<br>
-      現在のURL: <code style="font-size:11px;background:var(--gray-100);padding:2px 6px;border-radius:4px;">${location.href.split('?')[0]}</code>
+      <div class="qr-card depart">
+        <h4>🚗 出庫QR</h4>
+        <div id="qr-depart"></div>
+        <div class="url-note">${dUrl}</div>
+      </div>
+      <div class="qr-card arrive">
+        <h4>🏁 入庫QR</h4>
+        <div id="qr-arrive"></div>
+        <div class="url-note">${aUrl}</div>
+      </div>
     </div>
   </div>`;
-  generateQRCodes();
+  // QR生成
+  new QRCode(document.getElementById('qr-depart'), { text: dUrl, width: 130, height: 130, colorDark: '#1a6fc4', colorLight: '#ffffff' });
+  new QRCode(document.getElementById('qr-arrive'), { text: aUrl, width: 130, height: 130, colorDark: '#2d8a4e', colorLight: '#ffffff' });
 }
 
 function renderMemberChips() {
@@ -331,34 +362,17 @@ function addMember() {
   saveConfig(cfg);
   input.value = '';
   document.getElementById('member-list').innerHTML = renderMemberChips();
-  generateQRCodes();
 }
 function removeMember(i) {
   cfg.members.splice(i, 1);
   saveConfig(cfg);
   document.getElementById('member-list').innerHTML = renderMemberChips();
-  generateQRCodes();
 }
 function saveGasUrl() {
   cfg.gasUrl = document.getElementById('gas-url').value.trim();
   saveConfig(cfg);
-  document.getElementById('gas-status').innerHTML = `<div class="dot ${cfg.gasUrl ? 'dot-ok' : 'dot-none'}"></div><span>${cfg.gasUrl ? '保存しました ✓' : '未設定'}</span>`;
-  generateQRCodes();
-}
-function generateQRCodes() {
-  const base = location.href.split('?')[0];
-  const members = encodeURIComponent(cfg.members.join(','));
-  const purposes = encodeURIComponent(cfg.purposes.join(','));
-  const gas = encodeURIComponent(cfg.gasUrl || '');
-  const extra = `&members=${members}&purposes=${purposes}&gas=${gas}`;
-  const dUrl = base + '?mode=depart' + extra;
-  const aUrl = base + '?mode=arrive' + extra;
-  document.getElementById('qr-depart-url').textContent = dUrl;
-  document.getElementById('qr-arrive-url').textContent = aUrl;
-  document.getElementById('qr-depart').innerHTML = '';
-  document.getElementById('qr-arrive').innerHTML = '';
-  new QRCode(document.getElementById('qr-depart'), { text: dUrl, width: 120, height: 120, colorDark: '#1a6fc4', colorLight: '#ffffff' });
-  new QRCode(document.getElementById('qr-arrive'), { text: aUrl, width: 120, height: 120, colorDark: '#2d8a4e', colorLight: '#ffffff' });
+  document.getElementById('gas-status').innerHTML =
+    `<div class="dot ${cfg.gasUrl ? 'dot-ok' : 'dot-none'}"></div><span>${cfg.gasUrl ? '保存しました ✓' : '未設定'}</span>`;
 }
 
 // ── 起動 ─────────────────────────────────────────────────────
