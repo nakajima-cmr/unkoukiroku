@@ -236,6 +236,11 @@ let cfg = loadConfig();
 if (!cfg.members) cfg.members = ['田中 太郎','鈴木 花子','山田 一郎','佐藤 次郎'];
 if (!cfg.purposes) cfg.purposes = ['営業訪問','荷物配送','資材調達','社内移動','その他'];
 
+// URLパラメータからメンバー・用途・GAS URLを上書き（QRコード経由アクセス時）
+if (params.get('members')) cfg.members = decodeURIComponent(params.get('members')).split(',').filter(Boolean);
+if (params.get('purposes')) cfg.purposes = decodeURIComponent(params.get('purposes')).split(',').filter(Boolean);
+if (params.get('gas')) { const g = decodeURIComponent(params.get('gas')); if (g) cfg.gasUrl = g; }
+
 function now() {
   return new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
@@ -492,8 +497,12 @@ function saveGasUrl() {
 
 function generateQRCodes() {
   const base = location.href.split('?')[0];
-  const dUrl = base + '?mode=depart';
-  const aUrl = base + '?mode=arrive';
+  const members = encodeURIComponent(cfg.members.join(','));
+  const purposes = encodeURIComponent(cfg.purposes.join(','));
+  const gasUrl = encodeURIComponent(cfg.gasUrl || '');
+  const extra = `&members=${members}&purposes=${purposes}&gas=${gasUrl}`;
+  const dUrl = base + '?mode=depart' + extra;
+  const aUrl = base + '?mode=arrive' + extra;
 
   document.getElementById('qr-depart-url').textContent = dUrl;
   document.getElementById('qr-arrive-url').textContent = aUrl;
