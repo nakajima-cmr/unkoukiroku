@@ -202,41 +202,46 @@ function renderDepart(){
   const pending = loadPending();
   let html = '';
 
-  // 未入庫の警告
   if(pending){
+    // 出庫中の場合：入庫を促す画面のみ表示（新規出庫フォームは非表示）
     html += `<div class="pending-box">
-      <div class="label">⚠ 未入庫の記録があります</div>
+      <div class="label">🚗 現在出庫中です</div>
       <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
+      <div class="pending-row"><span>用途</span><span>${pending.purpose}</span></div>
       <div class="pending-row"><span>出庫時刻</span><span>${pending.departTime}</span></div>
       <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
+    </div>
+    <div class="form-card" style="text-align:center;padding:28px 20px;">
+      <div style="font-size:32px;margin-bottom:10px;">🏁</div>
+      <div style="font-size:15px;font-weight:600;margin-bottom:6px;color:var(--gray-900);">帰庫したら入庫QRを読んでください</div>
+      <div style="font-size:13px;color:var(--gray-500);">入庫記録が完了するまで新しい出庫は記録できません</div>
+    </div>`;
+    html += renderHistoryHTML();
+  } else {
+    // 出庫中でない場合：履歴 → 入力フォーム
+    html += renderHistoryHTML();
+    html += `<div class="form-card">
+      <h2>出庫記録</h2>
+      <div class="field"><label>使用者</label>
+        <select id="d-user">
+          <option value="">選択してください</option>
+          ${MEMBERS.map(m=>`<option>${m}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field"><label>使用用途</label>
+        <select id="d-purpose">
+          <option value="">選択してください</option>
+          ${PURPOSES.map(p=>`<option>${p}</option>`).join('')}
+        </select>
+      </div>
+      <div class="field">
+        <label>出庫時メーター</label>
+        <input type="number" id="d-meter" class="meter-input" placeholder="例：12345" min="0" inputmode="numeric"/>
+        <div class="meter-suffix">km</div>
+      </div>
+      <button class="btn btn-depart" id="btn-d" onclick="doDepart()">出庫を記録する</button>
     </div>`;
   }
-
-  // 履歴
-  html += renderHistoryHTML();
-
-  // 入力フォーム
-  html += `<div class="form-card">
-    <h2>出庫記録</h2>
-    <div class="field"><label>使用者</label>
-      <select id="d-user">
-        <option value="">選択してください</option>
-        ${MEMBERS.map(m=>`<option>${m}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field"><label>使用用途</label>
-      <select id="d-purpose">
-        <option value="">選択してください</option>
-        ${PURPOSES.map(p=>`<option>${p}</option>`).join('')}
-      </select>
-    </div>
-    <div class="field">
-      <label>出庫時メーター</label>
-      <input type="number" id="d-meter" class="meter-input" placeholder="例：12345" min="0" inputmode="numeric"/>
-      <div class="meter-suffix">km</div>
-    </div>
-    <button class="btn btn-depart" id="btn-d" onclick="doDepart()">出庫を記録する</button>
-  </div>`;
   content.innerHTML = html;
 }
 
