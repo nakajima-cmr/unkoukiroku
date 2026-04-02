@@ -72,7 +72,6 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .page-pad{padding-bottom:80px}
 .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
-.url-note{font-size:10px;color:var(--gray-500);word-break:break-all;margin-top:6px}
 </style>
 </head>
 <body>
@@ -96,7 +95,7 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 const params = new URLSearchParams(location.search);
 const MODE = params.get('mode') || 'admin';
 
-// ── ローカルストレージ（管理画面の設定保存用）──────────────
+// ── ローカルストレージ ───────────────────────────────────────
 const CFG_KEY = 'vlog_config';
 const STATE_KEY = 'vlog_pending';
 function loadConfig() { try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; } }
@@ -105,10 +104,11 @@ function loadPending() { try { return JSON.parse(localStorage.getItem(STATE_KEY)
 function savePending(p) { localStorage.setItem(STATE_KEY, JSON.stringify(p)); }
 function clearPending() { localStorage.removeItem(STATE_KEY); }
 
-// cfg は管理画面専用。出庫・入庫画面はGASから設定を取得する
+// ── 設定（常にローカルから即読み込み）──────────────────────
 let cfg = loadConfig();
-if (!cfg.members) cfg.members = ['田中 太郎','鈴木 花子','山田 一郎','佐藤 次郎'];
+if (!cfg.members)  cfg.members  = ['田中 太郎','鈴木 花子','山田 一郎','佐藤 次郎'];
 if (!cfg.purposes) cfg.purposes = ['営業訪問','荷物配送','資材調達','社内移動','その他'];
+saveConfig(cfg);
 
 // ── トップバー ───────────────────────────────────────────────
 document.getElementById('top-bar').classList.add('mode-' + (MODE === 'admin' ? 'admin' : MODE));
@@ -128,55 +128,29 @@ function now() {
   return new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
 }
 
-// ── GAS通信（設定取得 & データ送信）────────────────────────
-// GASのURLはQRに含めず、このファイルに直接書く
-// 管理画面で設定したURLをここに自動反映する仕組み
-function getGasUrl() {
-  // 管理画面で保存したURLを使う
-  return loadConfig().gasUrl || '';
-}
-
-async function fetchConfig() {
-  const url = getGasUrl();
-  if (!url) return null;
-  try {
-    const res = await fetch(url + '?action=getConfig');
-    const data = await res.json();
-    return data;
-  } catch { return null; }
-}
-
-async function submitToGAS(payload) {
-  const url = getGasUrl();
-  if (!url) return { ok: false };
-  try {
-    await fetch(url, { method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify(payload), mode:'no-cors' });
-    return { ok: true };
-  } catch(e) { return { ok: false, msg: e.message }; }
+// ── GAS送信（失敗しても画面は止めない）─────────────────────
+function submitToGAS(payload) {
+  const url = cfg.gasUrl;
+  if (!url) return;
+  fetch(url, {
+    method: 'POST',
+    headers: {'Content-Type':'application/json'},
+    body: JSON.stringify(payload),
+    mode: 'no-cors'
+  }).catch(() => {});
 }
 
 // ── ページ切り替え ───────────────────────────────────────────
 const content = document.getElementById('main-content');
 function showPage(page) {
   ['nav-d','nav-a','nav-s'].forEach(id => document.getElementById(id).className = 'nav-item');
-  if (page === 'depart') { document.getElementById('nav-d').className = 'nav-item active-d'; renderDepart(); }
-  if (page === 'arrive') { document.getElementById('nav-a').className = 'nav-item active-a'; renderArrive(); }
+  if (page === 'depart')   { document.getElementById('nav-d').className = 'nav-item active-d'; renderDepart(); }
+  if (page === 'arrive')   { document.getElementById('nav-a').className = 'nav-item active-a'; renderArrive(); }
   if (page === 'settings') { document.getElementById('nav-s').className = 'nav-item active-s'; renderSettings(); }
 }
 
-// ── 出庫・入庫共通：メンバー/用途を取得（GAS→ローカル→デフォルト）
-async function getMembers() {
-  const remote = await fetchConfig();
-  if (remote && remote.members) return { members: remote.members, purposes: remote.purposes };
-  // GAS未設定 or 失敗時はローカル設定を使う
-  const c = loadConfig();
-  return { members: c.members, purposes: c.purposes };
-}
-
-// ── 出庫画面 ─────────────────────────────────────────────────
-async function renderDepart() {
-  content.innerHTML = '<div style="text-align:center;padding:40px;color:var(--gray-500);font-size:14px;">読み込み中...</div>';
-  const { members, purposes } = await getMembers();
+// ── 出庫画面（同期・即表示）─────────────────────────────────
+function renderDepart() {
   const pending = loadPending();
   let html = '';
   if (pending) {
@@ -192,13 +166,13 @@ async function renderDepart() {
     <div class="field"><label>使用者</label>
       <select id="d-user">
         <option value="">選択してください</option>
-        ${members.map(m => `<option>${m}</option>`).join('')}
+        ${cfg.members.map(m => `<option>${m}</option>`).join('')}
       </select>
     </div>
     <div class="field"><label>使用用途</label>
       <select id="d-purpose">
         <option value="">選択してください</option>
-        ${purposes.map(p => `<option>${p}</option>`).join('')}
+        ${cfg.purposes.map(p => `<option>${p}</option>`).join('')}
       </select>
     </div>
     <div class="field">
@@ -211,10 +185,10 @@ async function renderDepart() {
   content.innerHTML = html;
 }
 
-async function doDepart() {
-  const user = document.getElementById('d-user').value;
+function doDepart() {
+  const user    = document.getElementById('d-user').value;
   const purpose = document.getElementById('d-purpose').value;
-  const meter = parseInt(document.getElementById('d-meter').value);
+  const meter   = parseInt(document.getElementById('d-meter').value);
   if (!user || !purpose || isNaN(meter) || meter < 0) {
     content.insertAdjacentHTML('afterbegin','<div class="alert alert-error">すべての項目を正しく入力してください</div>');
     return;
@@ -222,10 +196,11 @@ async function doDepart() {
   const btn = document.getElementById('btn-d');
   btn.innerHTML = '<span class="spinner"></span>記録中...';
   btn.disabled = true;
+
   const record = { user, purpose, departMeter: meter, departTime: now() };
   savePending(record);
-  const gasUrl = getGasUrl();
-  await submitToGAS({ ...record, sheetRow: 'depart' });
+  submitToGAS({ ...record, sheetRow: 'depart' });
+
   content.innerHTML = `<div class="result-box">
     <div class="result-icon">🚗</div>
     <h2 style="color:var(--blue)">出庫を記録しました</h2>
@@ -234,14 +209,14 @@ async function doDepart() {
       <div>出庫メーター: <b>${meter.toLocaleString()} km</b></div>
       <div style="color:var(--gray-500);margin-top:4px;font-size:13px;">${record.departTime}</div>
     </div>
-    <div class="alert ${gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
-      ${gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
+    <div class="alert ${cfg.gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
+      ${cfg.gasUrl ? 'スプレッドシートに送信しました' : 'ローカルに保存しました（GAS未設定）'}
     </div>
     <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderDepart()">戻る</button>
   </div>`;
 }
 
-// ── 入庫画面 ─────────────────────────────────────────────────
+// ── 入庫画面（同期・即表示）─────────────────────────────────
 function renderArrive() {
   const pending = loadPending();
   if (!pending) {
@@ -271,9 +246,9 @@ function renderArrive() {
     </div>`;
 }
 
-async function doArrive() {
+function doArrive() {
   const pending = loadPending();
-  const meter = parseInt(document.getElementById('a-meter').value);
+  const meter   = parseInt(document.getElementById('a-meter').value);
   if (isNaN(meter) || meter < pending.departMeter) {
     content.insertAdjacentHTML('afterbegin','<div class="alert alert-error">メーターが出庫時より小さいです</div>');
     return;
@@ -281,11 +256,12 @@ async function doArrive() {
   const btn = document.getElementById('btn-a');
   btn.innerHTML = '<span class="spinner"></span>記録中...';
   btn.disabled = true;
+
   const distance = meter - pending.departMeter;
-  const record = { ...pending, arriveMeter: meter, arriveTime: now(), distance };
-  const gasUrl = getGasUrl();
-  await submitToGAS({ ...record, sheetRow: 'arrive' });
+  const record   = { ...pending, arriveMeter: meter, arriveTime: now(), distance };
+  submitToGAS({ ...record, sheetRow: 'arrive' });
   clearPending();
+
   content.innerHTML = `<div class="result-box">
     <div class="result-icon">🏁</div>
     <h2 style="color:var(--green)">入庫を記録しました</h2>
@@ -293,8 +269,8 @@ async function doArrive() {
     <div style="font-size:13px;color:var(--gray-500);">走行距離</div>
     <div style="margin-top:12px;font-size:13px;color:var(--gray-500);">${pending.departMeter.toLocaleString()} km → ${meter.toLocaleString()} km</div>
     <div style="margin-top:6px;font-size:13px;color:var(--gray-700);">${pending.user} ／ ${pending.purpose}</div>
-    <div class="alert ${gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
-      ${gasUrl ? 'スプレッドシートに記録しました' : 'ローカルに保存しました（GAS未設定）'}
+    <div class="alert ${cfg.gasUrl ? 'alert-success' : 'alert-info'}" style="margin-top:16px;">
+      ${cfg.gasUrl ? 'スプレッドシートに送信しました' : 'ローカルに保存しました（GAS未設定）'}
     </div>
     <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderArrive()">戻る</button>
   </div>`;
@@ -331,22 +307,25 @@ function renderSettings() {
     </div>
   </div>
   <div class="settings-section">
-    <h3>QRコード</h3>
-    <div style="font-size:12px;color:var(--gray-500);margin-bottom:12px;">QRはシンプルなURLのみ。メンバー情報はGASから自動取得します。</div>
-    <div class="qr-grid">
-      <div class="qr-card depart">
-        <h4>🚗 出庫QR</h4>
-        <div id="qr-depart"></div>
-        <div class="url-note">${dUrl}</div>
-      </div>
-      <div class="qr-card arrive">
-        <h4>🏁 入庫QR</h4>
-        <div id="qr-arrive"></div>
-        <div class="url-note">${aUrl}</div>
+    <h3>用途設定</h3>
+    <div class="form-card">
+      <div class="member-list" id="purpose-list">${renderPurposeChips()}</div>
+      <div class="add-row">
+        <div class="field"><input type="text" id="new-purpose" placeholder="用途を追加"/></div>
+        <button class="btn-add" onclick="addPurpose()">追加</button>
       </div>
     </div>
+  </div>
+  <div class="settings-section">
+    <h3>QRコード</h3>
+    <div class="qr-grid">
+      <div class="qr-card depart"><h4>🚗 出庫QR</h4><div id="qr-depart"></div></div>
+      <div class="qr-card arrive"><h4>🏁 入庫QR</h4><div id="qr-arrive"></div></div>
+    </div>
+    <div style="margin-top:10px;font-size:12px;color:var(--gray-500);">
+      メンバーを変更してもQRの貼り替えは不要です。
+    </div>
   </div>`;
-  // QR生成
   new QRCode(document.getElementById('qr-depart'), { text: dUrl, width: 130, height: 130, colorDark: '#1a6fc4', colorLight: '#ffffff' });
   new QRCode(document.getElementById('qr-arrive'), { text: aUrl, width: 130, height: 130, colorDark: '#2d8a4e', colorLight: '#ffffff' });
 }
@@ -354,19 +333,30 @@ function renderSettings() {
 function renderMemberChips() {
   return cfg.members.map((m,i) => `<div class="member-chip">${m}<span class="del" onclick="removeMember(${i})">×</span></div>`).join('');
 }
+function renderPurposeChips() {
+  return cfg.purposes.map((p,i) => `<div class="member-chip">${p}<span class="del" onclick="removePurpose(${i})">×</span></div>`).join('');
+}
 function addMember() {
   const input = document.getElementById('new-member');
   const name = input.value.trim();
   if (!name) return;
-  cfg.members.push(name);
-  saveConfig(cfg);
-  input.value = '';
+  cfg.members.push(name); saveConfig(cfg); input.value = '';
   document.getElementById('member-list').innerHTML = renderMemberChips();
 }
 function removeMember(i) {
-  cfg.members.splice(i, 1);
-  saveConfig(cfg);
+  cfg.members.splice(i,1); saveConfig(cfg);
   document.getElementById('member-list').innerHTML = renderMemberChips();
+}
+function addPurpose() {
+  const input = document.getElementById('new-purpose');
+  const val = input.value.trim();
+  if (!val) return;
+  cfg.purposes.push(val); saveConfig(cfg); input.value = '';
+  document.getElementById('purpose-list').innerHTML = renderPurposeChips();
+}
+function removePurpose(i) {
+  cfg.purposes.splice(i,1); saveConfig(cfg);
+  document.getElementById('purpose-list').innerHTML = renderPurposeChips();
 }
 function saveGasUrl() {
   cfg.gasUrl = document.getElementById('gas-url').value.trim();
