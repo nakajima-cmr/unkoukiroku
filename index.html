@@ -1,0 +1,519 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>車両運行記録</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcodejs/1.0.0/qrcode.min.js"></script>
+<style>
+  :root {
+    --blue: #1a6fc4;
+    --blue-light: #e8f2fb;
+    --green: #2d8a4e;
+    --green-light: #e6f4ec;
+    --amber: #c47a1a;
+    --amber-light: #fdf3e3;
+    --gray-50: #f8f8f7;
+    --gray-100: #efefed;
+    --gray-300: #c8c8c4;
+    --gray-500: #8a8a85;
+    --gray-700: #4a4a47;
+    --gray-900: #1e1e1c;
+    --radius: 10px;
+    --radius-sm: 6px;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body {
+    font-family: 'Hiragino Kaku Gothic ProN', 'Noto Sans JP', sans-serif;
+    background: var(--gray-50);
+    color: var(--gray-900);
+    min-height: 100vh;
+  }
+  .top-bar {
+    padding: 16px 20px 12px;
+    border-bottom: 1px solid var(--gray-100);
+    background: white;
+    position: sticky;
+    top: 0;
+    z-index: 10;
+  }
+  .top-bar h1 { font-size: 16px; font-weight: 600; color: var(--gray-900); }
+  .top-bar p { font-size: 12px; color: var(--gray-500); margin-top: 2px; }
+  .mode-badge {
+    display: inline-block;
+    font-size: 11px;
+    font-weight: 600;
+    padding: 3px 10px;
+    border-radius: 99px;
+    margin-top: 6px;
+    letter-spacing: 0.04em;
+  }
+  .mode-depart .mode-badge { background: var(--blue-light); color: var(--blue); }
+  .mode-arrive .mode-badge { background: var(--green-light); color: var(--green); }
+  .mode-admin .mode-badge { background: var(--amber-light); color: var(--amber); }
+  .container { padding: 20px 16px; max-width: 480px; margin: 0 auto; }
+
+  /* Alert banner */
+  .alert { border-radius: var(--radius-sm); padding: 12px 14px; margin-bottom: 16px; font-size: 13px; }
+  .alert-info { background: var(--blue-light); color: var(--blue); }
+  .alert-success { background: var(--green-light); color: var(--green); }
+  .alert-warning { background: var(--amber-light); color: var(--amber); }
+  .alert-error { background: #fde8e8; color: #b92b2b; }
+
+  /* Form card */
+  .form-card {
+    background: white;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-100);
+    padding: 20px;
+    margin-bottom: 16px;
+  }
+  .form-card h2 { font-size: 15px; font-weight: 600; margin-bottom: 16px; color: var(--gray-900); }
+  .field { margin-bottom: 14px; }
+  .field label { display: block; font-size: 12px; font-weight: 600; color: var(--gray-500); margin-bottom: 6px; letter-spacing: 0.04em; }
+  .field input, .field select, .field textarea {
+    width: 100%; padding: 11px 13px;
+    border: 1px solid var(--gray-300);
+    border-radius: var(--radius-sm);
+    font-size: 15px;
+    color: var(--gray-900);
+    background: white;
+    appearance: none;
+    -webkit-appearance: none;
+    transition: border-color 0.15s;
+  }
+  .field input:focus, .field select:focus {
+    outline: none;
+    border-color: var(--blue);
+    box-shadow: 0 0 0 3px rgba(26,111,196,0.12);
+  }
+  .field-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .meter-input { font-size: 20px; font-weight: 600; letter-spacing: 0.02em; }
+  .meter-suffix { font-size: 13px; color: var(--gray-500); margin-top: 4px; }
+
+  /* Buttons */
+  .btn {
+    width: 100%; padding: 14px;
+    border: none; border-radius: var(--radius);
+    font-size: 16px; font-weight: 600; cursor: pointer;
+    transition: all 0.15s; letter-spacing: 0.01em;
+  }
+  .btn-depart { background: var(--blue); color: white; }
+  .btn-arrive { background: var(--green); color: white; }
+  .btn-depart:active, .btn-arrive:active { transform: scale(0.98); opacity: 0.92; }
+  .btn-depart:disabled, .btn-arrive:disabled { opacity: 0.4; cursor: default; }
+  .btn-secondary {
+    background: var(--gray-100); color: var(--gray-700);
+    font-size: 14px; padding: 10px;
+  }
+
+  /* Pending info */
+  .pending-box {
+    background: var(--amber-light);
+    border: 1px solid #f5d080;
+    border-radius: var(--radius);
+    padding: 14px 16px;
+    margin-bottom: 16px;
+  }
+  .pending-box .label { font-size: 11px; font-weight: 600; color: var(--amber); margin-bottom: 6px; letter-spacing: 0.06em; }
+  .pending-row { display: flex; justify-content: space-between; font-size: 14px; color: var(--gray-700); margin-top: 4px; }
+  .pending-row span:last-child { font-weight: 600; color: var(--gray-900); }
+
+  /* Result screen */
+  .result-box {
+    background: white;
+    border-radius: var(--radius);
+    border: 1px solid var(--gray-100);
+    padding: 28px 20px;
+    text-align: center;
+    margin-bottom: 16px;
+  }
+  .result-icon { font-size: 48px; margin-bottom: 12px; }
+  .result-box h2 { font-size: 18px; font-weight: 700; margin-bottom: 8px; }
+  .result-km { font-size: 36px; font-weight: 700; margin: 16px 0 4px; }
+  .result-km span { font-size: 14px; font-weight: 400; color: var(--gray-500); }
+  .result-detail { font-size: 13px; color: var(--gray-500); }
+
+  /* Admin / settings */
+  .settings-section { margin-bottom: 24px; }
+  .settings-section h3 { font-size: 13px; font-weight: 600; color: var(--gray-500); letter-spacing: 0.06em; margin-bottom: 10px; padding-bottom: 6px; border-bottom: 1px solid var(--gray-100); }
+  .qr-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  .qr-card {
+    background: white;
+    border: 1px solid var(--gray-100);
+    border-radius: var(--radius);
+    padding: 16px;
+    text-align: center;
+  }
+  .qr-card h4 { font-size: 13px; font-weight: 600; margin-bottom: 12px; }
+  .qr-card.depart h4 { color: var(--blue); }
+  .qr-card.arrive h4 { color: var(--green); }
+  #qr-depart, #qr-arrive { display: flex; justify-content: center; margin-bottom: 10px; }
+  .qr-url { font-size: 10px; color: var(--gray-500); word-break: break-all; }
+  .member-list { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 10px; }
+  .member-chip {
+    background: var(--gray-100); border-radius: 99px;
+    padding: 6px 12px; font-size: 13px; display: flex; align-items: center; gap: 6px; cursor: pointer;
+  }
+  .member-chip .del { color: var(--gray-500); font-size: 16px; line-height: 1; }
+  .add-row { display: flex; gap: 8px; }
+  .add-row input { flex: 1; }
+  .btn-add {
+    padding: 10px 16px; background: var(--gray-900); color: white;
+    border: none; border-radius: var(--radius-sm); font-size: 14px; font-weight: 600; cursor: pointer;
+    white-space: nowrap;
+  }
+  .gas-status { display: flex; align-items: center; gap: 8px; font-size: 13px; margin-top: 8px; }
+  .dot { width: 8px; height: 8px; border-radius: 50%; }
+  .dot-ok { background: var(--green); }
+  .dot-ng { background: #e24b4a; }
+  .dot-none { background: var(--gray-300); }
+
+  /* Nav */
+  .bottom-nav {
+    position: fixed; bottom: 0; left: 0; right: 0;
+    background: white; border-top: 1px solid var(--gray-100);
+    display: flex; padding: 8px 0 env(safe-area-inset-bottom, 8px);
+  }
+  .nav-item {
+    flex: 1; display: flex; flex-direction: column; align-items: center;
+    gap: 3px; font-size: 10px; font-weight: 600; letter-spacing: 0.04em;
+    color: var(--gray-500); cursor: pointer; padding: 6px 0;
+    transition: color 0.15s;
+  }
+  .nav-item.active-d { color: var(--blue); }
+  .nav-item.active-a { color: var(--green); }
+  .nav-item.active-s { color: var(--amber); }
+  .nav-icon { font-size: 20px; }
+  .page-pad { padding-bottom: 80px; }
+
+  .spinner { display: inline-block; width: 18px; height: 18px; border: 2px solid rgba(255,255,255,0.4); border-top-color: white; border-radius: 50%; animation: spin 0.7s linear infinite; vertical-align: middle; margin-right: 6px; }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  .tag { display: inline-block; font-size: 11px; font-weight: 600; padding: 2px 8px; border-radius: 4px; }
+  .tag-depart { background: var(--blue-light); color: var(--blue); }
+  .tag-arrive { background: var(--green-light); color: var(--green); }
+</style>
+</head>
+<body>
+
+<div class="top-bar" id="top-bar">
+  <h1 id="top-title">車両運行記録</h1>
+  <p id="top-sub"></p>
+  <div class="mode-badge" id="mode-badge"></div>
+</div>
+
+<div class="container page-pad" id="main-content"></div>
+
+<nav class="bottom-nav" id="bottom-nav" style="display:none;">
+  <div class="nav-item" id="nav-d" onclick="showPage('depart')">
+    <span class="nav-icon">🚗</span>出庫
+  </div>
+  <div class="nav-item" id="nav-a" onclick="showPage('arrive')">
+    <span class="nav-icon">🏁</span>入庫
+  </div>
+  <div class="nav-item" id="nav-s" onclick="showPage('settings')">
+    <span class="nav-icon">⚙️</span>設定
+  </div>
+</nav>
+
+<script>
+// ─── State ───────────────────────────────────────────────
+const STATE_KEY = 'vlog_pending';
+const CFG_KEY   = 'vlog_config';
+
+function loadConfig() {
+  try { return JSON.parse(localStorage.getItem(CFG_KEY)) || {}; } catch { return {}; }
+}
+function saveConfig(cfg) { localStorage.setItem(CFG_KEY, JSON.stringify(cfg)); }
+function loadPending() {
+  try { return JSON.parse(localStorage.getItem(STATE_KEY)); } catch { return null; }
+}
+function savePending(p) { localStorage.setItem(STATE_KEY, JSON.stringify(p)); }
+function clearPending() { localStorage.removeItem(STATE_KEY); }
+
+let cfg = loadConfig();
+if (!cfg.members) cfg.members = ['田中 太郎','鈴木 花子','山田 一郎','佐藤 次郎'];
+if (!cfg.purposes) cfg.purposes = ['営業訪問','荷物配送','資材調達','社内移動','その他'];
+
+function now() {
+  return new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
+}
+
+// ─── Mode detection ───────────────────────────────────────
+const params = new URLSearchParams(location.search);
+const MODE = params.get('mode') || 'admin'; // depart | arrive | admin
+
+const topBar = document.getElementById('top-bar');
+topBar.classList.add('mode-' + (MODE === 'admin' ? 'admin' : MODE));
+
+const modeBadge = document.getElementById('mode-badge');
+if (MODE === 'depart') { modeBadge.textContent = '出庫モード'; document.getElementById('top-sub').textContent = '出発前にメーターを記録してください'; }
+else if (MODE === 'arrive') { modeBadge.textContent = '入庫モード'; document.getElementById('top-sub').textContent = '帰庫後にメーターを記録してください'; }
+else { modeBadge.textContent = '管理者モード'; document.getElementById('top-sub').textContent = 'QR生成・メンバー設定'; }
+
+// ─── GAS submit ──────────────────────────────────────────
+async function submitToGAS(payload) {
+  const url = cfg.gasUrl;
+  if (!url) return { ok: false, msg: 'GAS URLが未設定です' };
+  try {
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
+      mode: 'no-cors'
+    });
+    return { ok: true };
+  } catch (e) {
+    return { ok: false, msg: e.message };
+  }
+}
+
+// ─── Pages ───────────────────────────────────────────────
+const content = document.getElementById('main-content');
+
+function showPage(page) {
+  ['nav-d','nav-a','nav-s'].forEach(id => {
+    const el = document.getElementById(id);
+    el.className = 'nav-item';
+  });
+  if (page === 'depart') { document.getElementById('nav-d').className = 'nav-item active-d'; renderDepart(); }
+  if (page === 'arrive') { document.getElementById('nav-a').className = 'nav-item active-a'; renderArrive(); }
+  if (page === 'settings') { document.getElementById('nav-s').className = 'nav-item active-s'; renderSettings(); }
+}
+
+// ─── DEPART ──────────────────────────────────────────────
+function renderDepart() {
+  const pending = loadPending();
+  let html = '';
+  if (pending) {
+    html += `<div class="pending-box">
+      <div class="label">⚠ 未入庫の記録があります</div>
+      <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
+      <div class="pending-row"><span>出庫時刻</span><span>${pending.departTime}</span></div>
+      <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
+    </div>`;
+  }
+  html += `<div class="form-card">
+    <h2>出庫記録</h2>
+    <div class="field"><label>使用者</label>
+      <select id="d-user"><option value="">選択してください</option>
+        ${cfg.members.map(m=>`<option>${m}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>使用用途</label>
+      <select id="d-purpose"><option value="">選択してください</option>
+        ${cfg.purposes.map(p=>`<option>${p}</option>`).join('')}
+      </select></div>
+    <div class="field"><label>出庫時メーター</label>
+      <input type="number" id="d-meter" class="meter-input" placeholder="例：12345" min="0" inputmode="numeric"/>
+      <div class="meter-suffix">km</div>
+    </div>
+    <button class="btn btn-depart" id="btn-d" onclick="doDepart()">出庫を記録する</button>
+  </div>`;
+  content.innerHTML = html;
+}
+
+async function doDepart() {
+  const user = document.getElementById('d-user').value;
+  const purpose = document.getElementById('d-purpose').value;
+  const meter = parseInt(document.getElementById('d-meter').value);
+  if (!user || !purpose || isNaN(meter) || meter < 0) {
+    content.insertAdjacentHTML('afterbegin','<div class="alert alert-error">すべての項目を正しく入力してください</div>');
+    return;
+  }
+  const btn = document.getElementById('btn-d');
+  btn.innerHTML = '<span class="spinner"></span>記録中...';
+  btn.disabled = true;
+
+  const record = { user, purpose, departMeter: meter, departTime: now(), type: 'depart' };
+  savePending(record);
+
+  const res = await submitToGAS({ ...record, sheetRow: 'depart' });
+  if (!res.ok && cfg.gasUrl) {
+    content.insertAdjacentHTML('afterbegin',`<div class="alert alert-warning">スプレッドシート送信失敗（ローカル保存済）: ${res.msg}</div>`);
+  }
+
+  content.innerHTML = `<div class="result-box">
+    <div class="result-icon">🚗</div>
+    <h2 style="color:var(--blue)">出庫を記録しました</h2>
+    <div style="margin-top:16px; font-size:14px; color:var(--gray-700);">
+      <div style="margin-bottom:6px;"><b>${user}</b> ／ ${purpose}</div>
+      <div>出庫メーター: <b>${meter.toLocaleString()} km</b></div>
+      <div style="color:var(--gray-500); margin-top:4px; font-size:13px;">${record.departTime}</div>
+    </div>
+    ${cfg.gasUrl ? '<div class="alert alert-success" style="margin-top:16px;">スプレッドシートに記録しました</div>' : '<div class="alert alert-info" style="margin-top:16px;">ローカルに保存しました（GAS未設定）</div>'}
+    <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderDepart()">戻る</button>
+  </div>`;
+}
+
+// ─── ARRIVE ──────────────────────────────────────────────
+function renderArrive() {
+  const pending = loadPending();
+  let html = '';
+  if (pending) {
+    html += `<div class="pending-box">
+      <div class="label">📋 出庫中の記録</div>
+      <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
+      <div class="pending-row"><span>用途</span><span>${pending.purpose}</span></div>
+      <div class="pending-row"><span>出庫時刻</span><span>${pending.departTime}</span></div>
+      <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
+    </div>
+    <div class="form-card">
+      <h2>入庫記録</h2>
+      <div class="field"><label>入庫時メーター</label>
+        <input type="number" id="a-meter" class="meter-input" placeholder="例：12400" min="${pending.departMeter}" inputmode="numeric"/>
+        <div class="meter-suffix">km（出庫時: ${pending.departMeter.toLocaleString()} km）</div>
+      </div>
+      <button class="btn btn-arrive" id="btn-a" onclick="doArrive()">入庫を記録する</button>
+    </div>`;
+  } else {
+    html = `<div class="form-card" style="text-align:center; padding:40px 20px;">
+      <div style="font-size:40px; margin-bottom:12px;">🔍</div>
+      <div style="font-size:16px; font-weight:600; margin-bottom:8px;">出庫記録がありません</div>
+      <div style="font-size:13px; color:var(--gray-500);">先に出庫を記録してください</div>
+    </div>`;
+  }
+  content.innerHTML = html;
+}
+
+async function doArrive() {
+  const pending = loadPending();
+  const meter = parseInt(document.getElementById('a-meter').value);
+  if (isNaN(meter) || meter < pending.departMeter) {
+    content.insertAdjacentHTML('afterbegin','<div class="alert alert-error">メーターが出庫時より小さいです</div>');
+    return;
+  }
+  const btn = document.getElementById('btn-a');
+  btn.innerHTML = '<span class="spinner"></span>記録中...';
+  btn.disabled = true;
+
+  const distance = meter - pending.departMeter;
+  const record = { ...pending, arriveMeter: meter, arriveTime: now(), distance, type: 'arrive' };
+
+  const res = await submitToGAS({ ...record, sheetRow: 'arrive' });
+  clearPending();
+
+  if (!res.ok && cfg.gasUrl) {
+    content.insertAdjacentHTML('afterbegin',`<div class="alert alert-warning">スプレッドシート送信失敗: ${res.msg}</div>`);
+  }
+
+  content.innerHTML = `<div class="result-box">
+    <div class="result-icon">🏁</div>
+    <h2 style="color:var(--green)">入庫を記録しました</h2>
+    <div class="result-km">${distance.toLocaleString()}<span> km</span></div>
+    <div class="result-detail">走行距離</div>
+    <div style="margin-top:16px; font-size:13px; color:var(--gray-500);">
+      ${pending.departMeter.toLocaleString()} km → ${meter.toLocaleString()} km
+    </div>
+    <div style="margin-top:6px; font-size:13px; color:var(--gray-700);">${pending.user} ／ ${pending.purpose}</div>
+    ${cfg.gasUrl ? '<div class="alert alert-success" style="margin-top:16px;">スプレッドシートに記録しました</div>' : '<div class="alert alert-info" style="margin-top:16px;">ローカルに保存しました（GAS未設定）</div>'}
+    <button class="btn btn-secondary" style="margin-top:16px;" onclick="renderArrive()">戻る</button>
+  </div>`;
+}
+
+// ─── SETTINGS / ADMIN ────────────────────────────────────
+function renderSettings() {
+  content.innerHTML = `
+  <div class="settings-section">
+    <h3>GOOGLE APPS SCRIPT 連携</h3>
+    <div class="form-card">
+      <div class="field">
+        <label>GAS ウェブアプリ URL</label>
+        <input type="url" id="gas-url" placeholder="https://script.google.com/macros/s/..." value="${cfg.gasUrl||''}"/>
+      </div>
+      <div class="gas-status" id="gas-status">
+        <div class="dot ${cfg.gasUrl ? 'dot-ok' : 'dot-none'}"></div>
+        <span>${cfg.gasUrl ? '設定済み' : '未設定'}</span>
+      </div>
+      <button class="btn btn-secondary" style="margin-top:12px;" onclick="saveGasUrl()">URLを保存</button>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h3>メンバー設定</h3>
+    <div class="form-card">
+      <div class="member-list" id="member-list">${renderMemberChips()}</div>
+      <div class="add-row">
+        <div class="field" style="flex:1; margin:0;"><input type="text" id="new-member" placeholder="名前を追加"/></div>
+        <button class="btn-add" onclick="addMember()">追加</button>
+      </div>
+    </div>
+  </div>
+
+  <div class="settings-section">
+    <h3>QRコード生成</h3>
+    <div class="qr-grid">
+      <div class="qr-card depart">
+        <h4>🚗 出庫QR</h4>
+        <div id="qr-depart"></div>
+        <div class="qr-url" id="qr-depart-url"></div>
+      </div>
+      <div class="qr-card arrive">
+        <h4>🏁 入庫QR</h4>
+        <div id="qr-arrive"></div>
+        <div class="qr-url" id="qr-arrive-url"></div>
+      </div>
+    </div>
+    <div style="margin-top:12px; font-size:12px; color:var(--gray-500);">
+      ※ このアプリをサーバーやGitHub Pagesなどに公開してからQRを印刷してください。<br>
+      現在のURL: <code style="font-size:11px; background:var(--gray-100); padding:2px 6px; border-radius:4px;">${location.href.split('?')[0]}</code>
+    </div>
+  </div>
+  `;
+  generateQRCodes();
+}
+
+function renderMemberChips() {
+  return cfg.members.map((m,i) => `<div class="member-chip">${m}<span class="del" onclick="removeMember(${i})">×</span></div>`).join('');
+}
+
+function addMember() {
+  const input = document.getElementById('new-member');
+  const name = input.value.trim();
+  if (!name) return;
+  cfg.members.push(name);
+  saveConfig(cfg);
+  input.value = '';
+  document.getElementById('member-list').innerHTML = renderMemberChips();
+}
+
+function removeMember(i) {
+  cfg.members.splice(i, 1);
+  saveConfig(cfg);
+  document.getElementById('member-list').innerHTML = renderMemberChips();
+}
+
+function saveGasUrl() {
+  cfg.gasUrl = document.getElementById('gas-url').value.trim();
+  saveConfig(cfg);
+  const st = document.getElementById('gas-status');
+  st.innerHTML = `<div class="dot ${cfg.gasUrl ? 'dot-ok' : 'dot-none'}"></div><span>${cfg.gasUrl ? '保存しました ✓' : '未設定'}</span>`;
+}
+
+function generateQRCodes() {
+  const base = location.href.split('?')[0];
+  const dUrl = base + '?mode=depart';
+  const aUrl = base + '?mode=arrive';
+
+  document.getElementById('qr-depart-url').textContent = dUrl;
+  document.getElementById('qr-arrive-url').textContent = aUrl;
+
+  document.getElementById('qr-depart').innerHTML = '';
+  document.getElementById('qr-arrive').innerHTML = '';
+
+  new QRCode(document.getElementById('qr-depart'), { text: dUrl, width: 120, height: 120, colorDark: '#1a6fc4', colorLight: '#ffffff' });
+  new QRCode(document.getElementById('qr-arrive'), { text: aUrl, width: 120, height: 120, colorDark: '#2d8a4e', colorLight: '#ffffff' });
+}
+
+// ─── Init ─────────────────────────────────────────────────
+if (MODE === 'admin') {
+  document.getElementById('bottom-nav').style.display = 'flex';
+  showPage('settings');
+} else if (MODE === 'depart') {
+  renderDepart();
+} else if (MODE === 'arrive') {
+  renderArrive();
+}
+</script>
+</body>
+</html>
