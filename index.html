@@ -42,6 +42,21 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .result-box h2{font-size:18px;font-weight:700;margin-bottom:8px}
 .result-km{font-size:36px;font-weight:700;margin:16px 0 4px}
 .result-km span{font-size:14px;font-weight:400;color:var(--gray-500)}
+/* 履歴カード */
+.history-card{background:white;border-radius:var(--radius);border:1px solid var(--gray-100);padding:14px 16px;margin-bottom:16px}
+.history-card h3{font-size:12px;font-weight:600;color:var(--gray-500);letter-spacing:.06em;margin-bottom:10px}
+.history-item{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--gray-100)}
+.history-item:last-child{border:none;padding-bottom:0}
+.history-left{flex:1}
+.history-user{font-size:13px;font-weight:600;color:var(--gray-900)}
+.history-purpose{font-size:11px;color:var(--gray-500);margin-top:1px}
+.history-time{font-size:11px;color:var(--gray-500);margin-top:2px}
+.history-right{text-align:right;flex-shrink:0;margin-left:12px}
+.history-km{font-size:13px;font-weight:600;color:var(--gray-700)}
+.history-meter{font-size:11px;color:var(--gray-500);margin-top:1px}
+.badge-done{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:var(--green-light);color:var(--green)}
+.badge-out{display:inline-block;font-size:10px;font-weight:600;padding:1px 6px;border-radius:99px;background:var(--amber-light);color:var(--amber)}
+/* QR・設定 */
 .qr-grid{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:12px}
 .qr-card{background:white;border:1px solid var(--gray-100);border-radius:var(--radius);padding:16px;text-align:center}
 .qr-card h4{font-size:13px;font-weight:600;margin-bottom:10px}
@@ -53,8 +68,8 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .settings-section h3{font-size:13px;font-weight:600;color:var(--gray-500);letter-spacing:.06em;margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--gray-100)}
 .code-block{background:var(--gray-900);color:#a8d8a8;border-radius:var(--radius-sm);padding:14px;font-family:monospace;font-size:12px;line-height:1.8;overflow-x:auto;margin-bottom:10px}
 .code-block .hl{color:#ffd080}
-.step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--blue);color:white;font-size:11px;font-weight:700;margin-right:6px;flex-shrink:0}
-.step{display:flex;align-items:flex-start;gap:0;margin-bottom:16px;font-size:13px;color:var(--gray-700);line-height:1.6}
+.step-num{display:inline-flex;align-items:center;justify-content:center;width:22px;height:22px;border-radius:50%;background:var(--blue);color:white;font-size:11px;font-weight:700;margin-right:8px;flex-shrink:0;margin-top:1px}
+.step{display:flex;align-items:flex-start;margin-bottom:12px;font-size:13px;color:var(--gray-700);line-height:1.6}
 .bottom-nav{position:fixed;bottom:0;left:0;right:0;background:white;border-top:1px solid var(--gray-100);display:flex;padding:8px 0 env(safe-area-inset-bottom,8px)}
 .nav-item{flex:1;display:flex;flex-direction:column;align-items:center;gap:3px;font-size:10px;font-weight:600;letter-spacing:.04em;color:var(--gray-500);cursor:pointer;padding:6px 0}
 .nav-item.active-d{color:var(--blue)}
@@ -105,16 +120,26 @@ const PURPOSES = [
   '社内移動',
   'その他',
 ];
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbxD5f2oJJj3NrIm8JA4DcCsvPRF_bp7Bjf10zmQ-UXPPXgOlahEohAFIHBoa_cTjyI1Iw/exec'; // GASのURLをここに貼る（例: 'https://script.google.com/macros/s/xxx/exec'）
+const GAS_URL = 'https://script.google.com/macros/s/AKfycbz2HiAaxWCGwTBW-N1EpsEu05UUE6asE_4W4j6yE0zotPjO7JiMswoQ7hkQJIBV8wrnSw/exec'; // 例: 'https://script.google.com/macros/s/xxx/exec'
 // ============================================================
 
-const params = new URLSearchParams(location.search);
-const MODE   = params.get('mode') || 'admin';
-
+const params    = new URLSearchParams(location.search);
+const MODE      = params.get('mode') || 'admin';
 const STATE_KEY = 'vlog_pending';
+const HIST_KEY  = 'vlog_history';  // 履歴保存キー
+
 function loadPending(){ try{ return JSON.parse(localStorage.getItem(STATE_KEY)); }catch{ return null; } }
 function savePending(p){ localStorage.setItem(STATE_KEY, JSON.stringify(p)); }
 function clearPending(){ localStorage.removeItem(STATE_KEY); }
+
+// 履歴（最新5件を保存）
+function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)) || []; }catch{ return []; } }
+function addHistory(record){
+  const hist = loadHistory();
+  hist.unshift(record);          // 先頭に追加
+  if(hist.length > 5) hist.pop(); // 5件超えたら末尾削除
+  localStorage.setItem(HIST_KEY, JSON.stringify(hist));
+}
 
 function now(){
   return new Date().toLocaleString('ja-JP',{year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit'});
@@ -138,7 +163,6 @@ if(MODE==='depart'){
 }
 
 const content = document.getElementById('main-content');
-
 function showPage(page){
   ['nav-d','nav-a','nav-s'].forEach(id=>document.getElementById(id).className='nav-item');
   if(page==='depart') { document.getElementById('nav-d').className='nav-item active-d'; renderDepart(); }
@@ -146,10 +170,39 @@ function showPage(page){
   if(page==='settings'){ document.getElementById('nav-s').className='nav-item active-s'; renderSettings(); }
 }
 
+// ── 履歴HTML生成 ─────────────────────────────────────────────
+function renderHistoryHTML(){
+  const hist = loadHistory();
+  if(hist.length === 0) return '';
+  const items = hist.map(h => {
+    const isDone = h.status === 'done';
+    const badge  = isDone
+      ? `<span class="badge-done">完了</span>`
+      : `<span class="badge-out">出庫中</span>`;
+    const kmText = isDone
+      ? `<div class="history-km">+${h.distance.toLocaleString()} km</div><div class="history-meter">${h.departMeter.toLocaleString()}→${h.arriveMeter.toLocaleString()} km</div>`
+      : `<div class="history-km">${h.departMeter.toLocaleString()} km〜</div>`;
+    return `<div class="history-item">
+      <div class="history-left">
+        <div class="history-user">${h.user} ${badge}</div>
+        <div class="history-purpose">${h.purpose}</div>
+        <div class="history-time">${h.departTime}</div>
+      </div>
+      <div class="history-right">${kmText}</div>
+    </div>`;
+  }).join('');
+  return `<div class="history-card">
+    <h3>直近の使用履歴</h3>
+    ${items}
+  </div>`;
+}
+
 // ── 出庫画面 ─────────────────────────────────────────────────
 function renderDepart(){
   const pending = loadPending();
   let html = '';
+
+  // 未入庫の警告
   if(pending){
     html += `<div class="pending-box">
       <div class="label">⚠ 未入庫の記録があります</div>
@@ -158,6 +211,11 @@ function renderDepart(){
       <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
     </div>`;
   }
+
+  // 履歴
+  html += renderHistoryHTML();
+
+  // 入力フォーム
   html += `<div class="form-card">
     <h2>出庫記録</h2>
     <div class="field"><label>使用者</label>
@@ -192,8 +250,9 @@ function doDepart(){
   }
   const btn = document.getElementById('btn-d');
   btn.innerHTML='<span class="spinner"></span>記録中...'; btn.disabled=true;
-  const record = {user,purpose,departMeter:meter,departTime:now()};
+  const record = {user,purpose,departMeter:meter,departTime:now(),status:'out'};
   savePending(record);
+  addHistory(record);  // 履歴に追加（出庫中として）
   submitToGAS({...record,sheetRow:'depart'});
   content.innerHTML=`<div class="result-box">
     <div class="result-icon">🚗</div>
@@ -250,7 +309,16 @@ function doArrive(){
   const btn=document.getElementById('btn-a');
   btn.innerHTML='<span class="spinner"></span>記録中...'; btn.disabled=true;
   const distance=meter-pending.departMeter;
-  const record={...pending,arriveMeter:meter,arriveTime:now(),distance};
+  const record={...pending,arriveMeter:meter,arriveTime:now(),distance,status:'done'};
+
+  // 履歴の先頭（出庫中）を完了に更新
+  const hist = loadHistory();
+  const idx  = hist.findIndex(h => h.user===pending.user && h.status==='out');
+  if(idx >= 0){
+    hist[idx] = record;
+    localStorage.setItem('vlog_history', JSON.stringify(hist));
+  }
+
   submitToGAS({...record,sheetRow:'arrive'});
   clearPending();
   content.innerHTML=`<div class="result-box">
@@ -272,38 +340,30 @@ function renderSettings(){
   const base = location.href.split('?')[0];
   const dUrl = base+'?mode=depart';
   const aUrl = base+'?mode=arrive';
-
-  // QR画像をGoogle Charts APIで生成（外部ライブラリ不要・シンプルなURL）
-  const dQR = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(dUrl)}`;
-  const aQR = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(aUrl)}`;
+  const dQR  = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(dUrl)}`;
+  const aQR  = `https://api.qrserver.com/v1/create-qr-code/?size=140x140&data=${encodeURIComponent(aUrl)}`;
 
   content.innerHTML=`
   <div class="settings-section">
     <h3>QRコード</h3>
     <div class="qr-grid">
-      <div class="qr-card depart">
-        <h4>🚗 出庫QR</h4>
-        <div class="qr-img"><img src="${dQR}" alt="出庫QR"/></div>
-      </div>
-      <div class="qr-card arrive">
-        <h4>🏁 入庫QR</h4>
-        <div class="qr-img"><img src="${aQR}" alt="入庫QR"/></div>
-      </div>
+      <div class="qr-card depart"><h4>🚗 出庫QR</h4><div class="qr-img"><img src="${dQR}" alt="出庫QR"/></div></div>
+      <div class="qr-card arrive"><h4>🏁 入庫QR</h4><div class="qr-img"><img src="${aQR}" alt="入庫QR"/></div></div>
     </div>
     <div style="font-size:12px;color:var(--gray-500);">長押し or スクリーンショットで保存・印刷してください</div>
   </div>
 
   <div class="settings-section">
-    <h3>メンバー・用途の変更方法</h3>
+    <h3>メンバー・GASの変更方法</h3>
     <div class="form-card">
       <div class="step"><span class="step-num">1</span><div>GitHubで <b>index.html</b> を開いて ✏️ 編集ボタンをクリック</div></div>
       <div class="step"><span class="step-num">2</span><div>ファイル上部の以下の部分を書き換える</div></div>
       <div class="code-block">const MEMBERS = [<br>
-&nbsp;&nbsp;<span class="hl">'田中 太郎',</span>  ← 名前を変更<br>
+&nbsp;&nbsp;<span class="hl">'田中 太郎',</span><br>
 &nbsp;&nbsp;<span class="hl">'鈴木 花子',</span><br>
 ];<br>
-const GAS_URL = <span class="hl">'https://...'</span>; ← GAS URL</div>
-      <div class="step"><span class="step-num">3</span><div>「Commit changes」で保存 → QRは変わらないのでそのまま使える</div></div>
+const GAS_URL = <span class="hl">'https://...'</span>;</div>
+      <div class="step"><span class="step-num">3</span><div>「Commit changes」で保存 → QRの貼り替えは不要</div></div>
     </div>
   </div>
 
