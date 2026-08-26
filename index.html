@@ -156,17 +156,25 @@ function submitToGAS(payload){
 // 出庫QR・入庫QRは複数の端末から読まれるため、端末ローカルのlocalStorageだけを
 // 見ていると「別の端末で記録した内容が反映されない／履歴が食い違う」という
 // 問題が起きる。GAS_URLが設定されていれば、必ずスプレッドシート側を正として使う。
+//
+// 戻り値:
+//   { ok:true,  configured:false, data:null }  … GAS_URL未設定（ローカルのみで運用）
+//   { ok:true,  configured:true,  data:{...} } … 取得成功
+//   { ok:false, configured:true,  data:null }  … GAS_URLは設定されているが通信・応答に失敗
+//                                                （デプロイ未反映／アクセス権限／ネットワーク等）
 async function fetchRemoteStatus(){
-  if(!GAS_URL) return null;
+  if(!GAS_URL) return { ok:true, configured:false, data:null };
   try{
     const sep = GAS_URL.includes('?') ? '&' : '?';
     const res = await fetch(GAS_URL + sep + 'action=status', { method:'GET' });
-    if(!res.ok) return null;
+    if(!res.ok) throw new Error('HTTPステータス ' + res.status);
     const data = await res.json();
-    if(!data || data.status !== 'ok') return null;
-    return data; // { pending, history }
+    if(!data || data.status !== 'ok') throw new Error('想定外のレスポンス形式です');
+    return { ok:true, configured:true, data };
   }catch(err){
-    return null; // オフライン等の場合はローカルにフォールバック
+    // 通信・応答に失敗。原因調査用にコンソールへ出力しておく（DevToolsのConsoleで確認可能）。
+    console.error('[車両運行記録] スプレッドシートとの通信に失敗しました。GASの再デプロイ（新バージョン）とアクセス権限（全員に公開）を確認してください。', err);
+    return { ok:false, configured:true, data:null };
   }
 }
 
@@ -220,22 +228,38 @@ function renderHistoryHTML(hist){
 // GASから最新状態を取得しつつ、取れなければローカル保存分にフォールバックする。
 // 取得できた場合はローカルの保存内容もスプレッドシートの内容で上書きしておき、
 // 次回オフライン時のフォールバックも最新に近い状態を保つ。
+//
+// GAS_URLが設定されているのに通信に失敗した場合は、ローカルの古いキャッシュを
+// あたかも最新であるかのように無言で表示してしまうと「表示がスプレッドシートと
+// 食い違う」原因が分からなくなるため、syncFailed:true を返して画面側で警告を出す。
 async function loadStatus(){
   const remote = await fetchRemoteStatus();
-  if(remote){
-    if(remote.pending) savePending(remote.pending); else clearPending();
-    localStorage.setItem(HIST_KEY, JSON.stringify(remote.history || []));
-    return { pending: remote.pending || null, history: remote.history || [] };
+
+  if(remote.configured && remote.ok && remote.data){
+    const pending = remote.data.pending || null;
+    const history = remote.data.history || [];
+    if(pending) savePending(pending); else clearPending();
+    localStorage.setItem(HIST_KEY, JSON.stringify(history));
+    return { pending, history, syncFailed:false };
   }
-  return { pending: loadPending(), history: loadHistory() };
+
+  return {
+    pending: loadPending(),
+    history: loadHistory(),
+    syncFailed: remote.configured && !remote.ok // GAS設定済みなのに取得できなかった場合のみ警告
+  };
 }
 
 // ── 出庫画面 ─────────────────────────────────────────────────
 async function renderDepart(){
   content.innerHTML = `<div class="form-card loading-box">読み込み中...</div>`;
 
-  const { pending, history } = await loadStatus();
+  const { pending, history, syncFailed } = await loadStatus();
   let html = '';
+
+  if(syncFailed){
+    html += `<div class="alert alert-error">⚠ スプレッドシートと通信できませんでした。以下の情報は最新でない可能性があります。GASの再デプロイ（新バージョン）とアクセス権限をご確認ください。</div>`;
+  }
 
   if(pending){
     // 出庫中の場合：入庫を促す画面のみ表示（新規出庫フォームは非表示）
@@ -322,16 +346,20 @@ function doDepart(){
 async function renderArrive(){
   content.innerHTML = `<div class="form-card loading-box">読み込み中...</div>`;
 
-  const { pending } = await loadStatus();
+  const { pending, syncFailed } = await loadStatus();
+  const warningHTML = syncFailed
+    ? `<div class="alert alert-error">⚠ スプレッドシートと通信できませんでした。以下の情報は最新でない可能性があります。GASの再デプロイ（新バージョン）とアクセス権限をご確認ください。</div>`
+    : '';
+
   if(!pending){
-    content.innerHTML=`<div class="form-card" style="text-align:center;padding:40px 20px;">
+    content.innerHTML=warningHTML+`<div class="form-card" style="text-align:center;padding:40px 20px;">
       <div style="font-size:40px;margin-bottom:12px;">🔍</div>
       <div style="font-size:16px;font-weight:600;margin-bottom:8px;">出庫記録がありません</div>
       <div style="font-size:13px;color:var(--gray-500);">先に出庫QRを読んで記録してください</div>
     </div>`;
     return;
   }
-  content.innerHTML=`
+  content.innerHTML=warningHTML+`
     <div class="pending-box">
       <div class="label">📋 出庫中の記録</div>
       <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
