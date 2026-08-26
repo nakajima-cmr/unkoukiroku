@@ -79,6 +79,7 @@ body{font-family:'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;backgroun
 .page-pad{padding-bottom:80px}
 .spinner{display:inline-block;width:18px;height:18px;border:2px solid rgba(255,255,255,.4);border-top-color:white;border-radius:50%;animation:spin .7s linear infinite;vertical-align:middle;margin-right:6px}
 @keyframes spin{to{transform:rotate(360deg)}}
+.loading-box{text-align:center;padding:28px 20px;color:var(--gray-500);font-size:13px}
 </style>
 </head>
 <body>
@@ -104,19 +105,14 @@ const MEMBERS = [
   '中嶋',
   '日朝',
   '倉澤',
-  '稲田',
   '佐藤',
   '久保田',
   '岩岡',
   '杉村',
-  '祐太郎',
-  '庄子',
   '山岸',
   '鈴木',
   '吉田',
   '長谷川',
-  '吉武',
-  '川﨑',
 ];
 const PURPOSES = [
   '営業訪問',
@@ -125,19 +121,21 @@ const PURPOSES = [
   '社内移動',
   'その他',
 ];
-const GAS_URL = 'https://script.google.com/macros/s/AKfycbz2HiAaxWCGwTBW-N1EpsEu05UUE6asE_4W4j6yE0zotPjO7JiMswoQ7hkQJIBV8wrnSw/exec'; // 例: 'https://script.google.com/macros/s/xxx/exec'
+const GAS_URL = ''; // 例: 'https://script.google.com/macros/s/xxx/exec'
+const METER_DIFF_LIMIT = 1000; // 前回入庫メーターとの差がこの値(km)を超えたら出庫記録をエラーにする
 // ============================================================
 
 const params    = new URLSearchParams(location.search);
 const MODE      = params.get('mode') || 'admin';
 const STATE_KEY = 'vlog_pending';
-const HIST_KEY  = 'vlog_history';  // 履歴保存キー
+const HIST_KEY  = 'vlog_history';  // 履歴保存キー（GASが未設定の場合のフォールバック用）
+let lastArriveMeter = null; // 出庫フォーム表示中の「前回入庫メーター」（doDepartでの入力チェックにも使用）
 
 function loadPending(){ try{ return JSON.parse(localStorage.getItem(STATE_KEY)); }catch{ return null; } }
 function savePending(p){ localStorage.setItem(STATE_KEY, JSON.stringify(p)); }
 function clearPending(){ localStorage.removeItem(STATE_KEY); }
 
-// 履歴（最新5件を保存）
+// 履歴（最新5件を保存）※ GAS未設定時のローカルフォールバック用
 function loadHistory(){ try{ return JSON.parse(localStorage.getItem(HIST_KEY)) || []; }catch{ return []; } }
 function addHistory(record){
   const hist = loadHistory();
@@ -152,6 +150,24 @@ function now(){
 function submitToGAS(payload){
   if(!GAS_URL) return;
   fetch(GAS_URL,{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify(payload),mode:'no-cors'}).catch(()=>{});
+}
+
+// スプレッドシート上の最新状態（出庫中レコード・直近履歴）を取得する。
+// 出庫QR・入庫QRは複数の端末から読まれるため、端末ローカルのlocalStorageだけを
+// 見ていると「別の端末で記録した内容が反映されない／履歴が食い違う」という
+// 問題が起きる。GAS_URLが設定されていれば、必ずスプレッドシート側を正として使う。
+async function fetchRemoteStatus(){
+  if(!GAS_URL) return null;
+  try{
+    const sep = GAS_URL.includes('?') ? '&' : '?';
+    const res = await fetch(GAS_URL + sep + 'action=status', { method:'GET' });
+    if(!res.ok) return null;
+    const data = await res.json();
+    if(!data || data.status !== 'ok') return null;
+    return data; // { pending, history }
+  }catch(err){
+    return null; // オフライン等の場合はローカルにフォールバック
+  }
 }
 
 // トップバー
@@ -176,17 +192,16 @@ function showPage(page){
 }
 
 // ── 履歴HTML生成 ─────────────────────────────────────────────
-function renderHistoryHTML(){
-  const hist = loadHistory();
-  if(hist.length === 0) return '';
+function renderHistoryHTML(hist){
+  if(!hist || hist.length === 0) return '';
   const items = hist.map(h => {
     const isDone = h.status === 'done';
     const badge  = isDone
       ? `<span class="badge-done">完了</span>`
       : `<span class="badge-out">出庫中</span>`;
     const kmText = isDone
-      ? `<div class="history-km">+${h.distance.toLocaleString()} km</div><div class="history-meter">${h.departMeter.toLocaleString()}→${h.arriveMeter.toLocaleString()} km</div>`
-      : `<div class="history-km">${h.departMeter.toLocaleString()} km〜</div>`;
+      ? `<div class="history-km">+${Number(h.distance).toLocaleString()} km</div><div class="history-meter">${Number(h.departMeter).toLocaleString()}→${Number(h.arriveMeter).toLocaleString()} km</div>`
+      : `<div class="history-km">${Number(h.departMeter).toLocaleString()} km〜</div>`;
     return `<div class="history-item">
       <div class="history-left">
         <div class="history-user">${h.user} ${badge}</div>
@@ -202,9 +217,24 @@ function renderHistoryHTML(){
   </div>`;
 }
 
+// GASから最新状態を取得しつつ、取れなければローカル保存分にフォールバックする。
+// 取得できた場合はローカルの保存内容もスプレッドシートの内容で上書きしておき、
+// 次回オフライン時のフォールバックも最新に近い状態を保つ。
+async function loadStatus(){
+  const remote = await fetchRemoteStatus();
+  if(remote){
+    if(remote.pending) savePending(remote.pending); else clearPending();
+    localStorage.setItem(HIST_KEY, JSON.stringify(remote.history || []));
+    return { pending: remote.pending || null, history: remote.history || [] };
+  }
+  return { pending: loadPending(), history: loadHistory() };
+}
+
 // ── 出庫画面 ─────────────────────────────────────────────────
-function renderDepart(){
-  const pending = loadPending();
+async function renderDepart(){
+  content.innerHTML = `<div class="form-card loading-box">読み込み中...</div>`;
+
+  const { pending, history } = await loadStatus();
   let html = '';
 
   if(pending){
@@ -214,17 +244,21 @@ function renderDepart(){
       <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
       <div class="pending-row"><span>用途</span><span>${pending.purpose}</span></div>
       <div class="pending-row"><span>出庫時刻</span><span>${pending.departTime}</span></div>
-      <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
+      <div class="pending-row"><span>出庫メーター</span><span>${Number(pending.departMeter).toLocaleString()} km</span></div>
     </div>
     <div class="form-card" style="text-align:center;padding:28px 20px;">
       <div style="font-size:32px;margin-bottom:10px;">🏁</div>
       <div style="font-size:15px;font-weight:600;margin-bottom:6px;color:var(--gray-900);">帰庫したら入庫QRを読んでください</div>
       <div style="font-size:13px;color:var(--gray-500);">入庫記録が完了するまで新しい出庫は記録できません</div>
     </div>`;
-    html += renderHistoryHTML();
+    html += renderHistoryHTML(history);
   } else {
     // 出庫中でない場合：履歴 → 入力フォーム
-    html += renderHistoryHTML();
+    // 直近の完了記録から「前回入庫メーター」を取得し、入力補助として表示・入力チェックに利用する
+    const lastDone = (history || []).find(h => h.status === 'done' && h.arriveMeter !== '' && h.arriveMeter != null && !isNaN(Number(h.arriveMeter)));
+    lastArriveMeter = lastDone ? Number(lastDone.arriveMeter) : null;
+
+    html += renderHistoryHTML(history);
     html += `<div class="form-card">
       <h2>出庫記録</h2>
       <div class="field"><label>使用者</label>
@@ -243,6 +277,7 @@ function renderDepart(){
         <label>出庫時メーター</label>
         <input type="number" id="d-meter" class="meter-input" placeholder="例：12345" min="0" inputmode="numeric"/>
         <div class="meter-suffix">km</div>
+        ${lastArriveMeter!=null ? `<div class="meter-suffix" style="margin-top:6px;color:var(--blue);">📍 前回入庫メーター: <b>${lastArriveMeter.toLocaleString()} km</b></div>` : ''}
       </div>
       <button class="btn btn-depart" id="btn-d" onclick="doDepart()">出庫を記録する</button>
     </div>`;
@@ -258,11 +293,15 @@ function doDepart(){
     content.insertAdjacentHTML('afterbegin','<div class="alert alert-error">すべての項目を正しく入力してください</div>');
     return;
   }
+  if(lastArriveMeter != null && Math.abs(meter - lastArriveMeter) > METER_DIFF_LIMIT){
+    content.insertAdjacentHTML('afterbegin', `<div class="alert alert-error">前回の入庫メーター（${lastArriveMeter.toLocaleString()} km）と${METER_DIFF_LIMIT.toLocaleString()}km以上離れています。メーターの入力をご確認ください。</div>`);
+    return;
+  }
   const btn = document.getElementById('btn-d');
   btn.innerHTML='<span class="spinner"></span>記録中...'; btn.disabled=true;
   const record = {user,purpose,departMeter:meter,departTime:now(),status:'out'};
   savePending(record);
-  addHistory(record);  // 履歴に追加（出庫中として）
+  addHistory(record);  // 履歴に追加（GAS未設定時のローカルフォールバック用）
   submitToGAS({...record,sheetRow:'depart'});
   content.innerHTML=`<div class="result-box">
     <div class="result-icon">🚗</div>
@@ -280,8 +319,10 @@ function doDepart(){
 }
 
 // ── 入庫画面 ─────────────────────────────────────────────────
-function renderArrive(){
-  const pending = loadPending();
+async function renderArrive(){
+  content.innerHTML = `<div class="form-card loading-box">読み込み中...</div>`;
+
+  const { pending } = await loadStatus();
   if(!pending){
     content.innerHTML=`<div class="form-card" style="text-align:center;padding:40px 20px;">
       <div style="font-size:40px;margin-bottom:12px;">🔍</div>
@@ -296,14 +337,14 @@ function renderArrive(){
       <div class="pending-row"><span>使用者</span><span>${pending.user}</span></div>
       <div class="pending-row"><span>用途</span><span>${pending.purpose}</span></div>
       <div class="pending-row"><span>出庫時刻</span><span>${pending.departTime}</span></div>
-      <div class="pending-row"><span>出庫メーター</span><span>${pending.departMeter.toLocaleString()} km</span></div>
+      <div class="pending-row"><span>出庫メーター</span><span>${Number(pending.departMeter).toLocaleString()} km</span></div>
     </div>
     <div class="form-card">
       <h2>入庫記録</h2>
       <div class="field">
         <label>入庫時メーター</label>
         <input type="number" id="a-meter" class="meter-input" placeholder="例：12400" min="${pending.departMeter}" inputmode="numeric"/>
-        <div class="meter-suffix">km（出庫時: ${pending.departMeter.toLocaleString()} km）</div>
+        <div class="meter-suffix">km（出庫時: ${Number(pending.departMeter).toLocaleString()} km）</div>
       </div>
       <button class="btn btn-arrive" id="btn-a" onclick="doArrive()">入庫を記録する</button>
     </div>`;
@@ -321,13 +362,18 @@ function doArrive(){
   const distance=meter-pending.departMeter;
   const record={...pending,arriveMeter:meter,arriveTime:now(),distance,status:'done'};
 
-  // 履歴の先頭（出庫中）を完了に更新
+  // ローカル履歴（GAS未設定時のフォールバック用）：出庫中だった当該レコードを完了に置き換える。
+  // 実際の履歴表示は次回アクセス時にスプレッドシートから取得し直すため、ここでの
+  // 更新はあくまで簡易的なもの。
   const hist = loadHistory();
-  const idx  = hist.findIndex(h => h.user===pending.user && h.status==='out');
+  const idx  = hist.findIndex(h => h.user===pending.user && h.status==='out' && h.departTime===pending.departTime);
   if(idx >= 0){
     hist[idx] = record;
-    localStorage.setItem('vlog_history', JSON.stringify(hist));
+  }else{
+    hist.unshift(record);
+    if(hist.length > 5) hist.pop();
   }
+  localStorage.setItem(HIST_KEY, JSON.stringify(hist));
 
   submitToGAS({...record,sheetRow:'arrive'});
   clearPending();
